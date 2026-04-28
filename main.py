@@ -58,7 +58,7 @@ class SimpleVoiceAssistant:
         })
 
         response = self.client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-haiku-latest",
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             messages=self.conversation_history

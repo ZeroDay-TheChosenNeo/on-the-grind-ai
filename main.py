@@ -1,21 +1,22 @@
 """
 On The Grind AI Voice Assistant
-LiveKit + Deepgram + Claude + Cartesia integration
+Simple REST API approach - no LiveKit Agents framework
+Works with Python 3.9+
 """
 
-import asyncio
 import os
 import logging
-from livekit import rtc, agents
-from livekit.agents import JobContext, WorkerOptions, cli
-from livekit.agents.llm import ChatContext, ChatMessage
-from livekit.plugins import deepgram, openai, cartesia, silero
+from dotenv import load_dotenv
+from anthropic import Anthropic
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# System prompt for the barbershop assistant
+# System prompt
 SYSTEM_PROMPT = """Είσαι η Νίκη, η ψηφιακή γραμματέας του "On The Grind", ενός premium barbershop στη Θεσσαλονίκη, στην Αριστοτέλους 31. Τηλέφωνο: 6934354652.
 
 Η σημερινή ημερομηνία είναι: 28 Απριλίου 2026, Δευτέρα.
@@ -45,68 +46,53 @@ SYSTEM_PROMPT = """Είσαι η Νίκη, η ψηφιακή γραμματέα�
 """
 
 
-class VoiceAssistant:
-    """Main voice assistant class"""
-    
+class SimpleVoiceAssistant:
     def __init__(self):
-        self.chat_ctx = ChatContext()
-        self.chat_ctx.messages.append(
-            ChatMessage(role="system", content=SYSTEM_PROMPT)
-        )
-    
-    async def entrypoint(self, ctx: JobContext):
-        """Main entrypoint for LiveKit job"""
-        logger.info("Starting voice assistant job")
-        
-        # Connect to the room
-        await ctx.connect()
-        
-        # Wait for participant
-        participant = await ctx.wait_for_participant()
-        logger.info(f"Participant connected: {participant.identity}")
-        
-        # Initialize pipeline components
-        stt = deepgram.STT(
-            model="nova-2",
-            language="el",  # Greek
-        )
-        
-        llm = openai.LLM(
+        self.client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.conversation_history = []
+
+    def chat(self, user_input):
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_input
+        })
+
+        response = self.client.messages.create(
             model="claude-3-haiku-20240307",
-            base_url="https://api.anthropic.com/v1",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=self.conversation_history
         )
-        
-        tts = cartesia.TTS(
-            voice_id=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
-            language="el",  # Greek
-        )
-        
-        # Start the assistant
-        assistant = agents.VoiceAssistant(
-            vad=silero.VAD.load(),
-            stt=stt,
-            llm=llm,
-            tts=tts,
-            chat_ctx=self.chat_ctx,
-        )
-        
-        assistant.start(ctx.room)
-        
-        # Greet the user
-        await assistant.say("On The Grind, γεια σας! Είμαι η Νίκη. Πώς μπορώ να σας βοηθήσω;")
-        
-        logger.info("Assistant started and greeted user")
+
+        assistant_message = response.content[0].text
+
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": assistant_message
+        })
+
+        return assistant_message
 
 
 def main():
-    """Entry point"""
-    assistant = VoiceAssistant()
-    
-    cli.run_app(
-        WorkerOptions(
-            entrypoint_fnc=assistant.entrypoint,
-        ),
-    )
+    print("On The Grind AI Assistant - Test Mode")
+    print("=" * 50)
+    print("Type 'quit' to exit\n")
+
+    assistant = SimpleVoiceAssistant()
+
+    greeting = assistant.chat("Γεια σου")
+    print(f"Νίκη: {greeting}\n")
+
+    while True:
+        user_input = input("You: ")
+
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Αντίο!")
+            break
+
+        response = assistant.chat(user_input)
+        print(f"Νίκη: {response}\n")
 
 
 if __name__ == "__main__":

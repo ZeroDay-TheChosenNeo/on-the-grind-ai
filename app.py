@@ -37,16 +37,23 @@ async def inbound_call(request: Request):
     body = await request.json()
     print("TELNYX WEBHOOK:", body)
 
+    response = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=120,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": "Γεια σου"}]
+    )
+
+    reply = response.content[0].text
+
     return JSONResponse({
         "actions": [
-            {
-                "answer": {}
-            },
+            {"answer": {}},
             {
                 "speak": {
                     "language": "el-GR",
                     "voice": "female",
-                    "text": "Γεια σου. Καλώς ήρθες στο On The Grind. Πώς μπορώ να βοηθήσω;"
+                    "text": reply
                 }
             }
         ]

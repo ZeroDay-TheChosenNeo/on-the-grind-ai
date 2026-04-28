@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from anthropic import Anthropic
@@ -30,3 +31,23 @@ def chat(req: ChatRequest):
         messages=[{"role": "user", "content": req.message}]
     )
     return {"reply": response.content[0].text}
+
+@app.post("/inbound-call")
+async def inbound_call(request: Request):
+    body = await request.json()
+    print("TELNYX WEBHOOK:", body)
+
+    return JSONResponse({
+        "actions": [
+            {
+                "answer": {}
+            },
+            {
+                "speak": {
+                    "language": "el-GR",
+                    "voice": "female",
+                    "text": "Γεια σου. Καλώς ήρθες στο On The Grind. Πώς μπορώ να βοηθήσω;"
+                }
+            }
+        ]
+    })

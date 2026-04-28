@@ -45,7 +45,7 @@ class SimpleVoiceAssistant:
         })
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-6-20260217",
+            model="claude-3-5-sonnet-latest",
             max_tokens=300,
             system=SYSTEM_PROMPT,
             messages=self.conversation_history

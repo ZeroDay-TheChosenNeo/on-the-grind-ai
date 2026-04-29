@@ -1,60 +1,116 @@
-import os
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from dotenv import load_dotenv
-from anthropic import Anthropic
-
-load_dotenv()
-
-app = FastAPI()
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-SYSTEM_PROMPT = """Είσαι η Νίκη, η ψηφιακή γραμματέας του On The Grind.
-Μιλάς πάντα Ελληνικά, σύντομα και φυσικά.
-Μία ερώτηση τη φορά.
+"""
+On The Grind AI - Production Voice Agent
+LiveKit + Deepgram (STT) + Claude Haiku (LLM) + Cartesia (TTS)
 """
 
-class ChatRequest(BaseModel):
-    message: str
+import os
+import logging
+from dotenv import load_dotenv
+from livekit import rtc
+from livekit.agents import (
+    AutoSubscribe,
+    JobContext,
+    WorkerOptions,
+    cli,
+    llm,
+    voice,
+)
+from livekit.plugins import deepgram, cartesia, anthropic
+from fastapi import FastAPI
+import uvicorn
+from threading import Thread
 
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# FastAPI app for Railway health checks
+app = FastAPI()
+
+@app.get("/")
 @app.get("/health")
-def health():
-    return {"ok": True}
+async def health():
+    """Health check endpoint for Railway"""
+    return {"status": "healthy", "service": "on-the-grind-ai"}
 
-@app.post("/chat")
-def chat(req: ChatRequest):
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=300,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": req.message}]
+# Greek system prompt
+SYSTEM_PROMPT = """Είσαι η Νίκη, η ψηφιακή γραμματέας του "On The Grind", ενός premium barbershop στη Θεσσαλονίκη, στην Αριστοτέλους 31. Τηλέφωνο: 6934354652.
+
+Η σημερινή ημερομηνία είναι: 28 Απριλίου 2026, Δευτέρα.
+
+ΧΑΡΑΚΤΗΡΑΣ:
+Μιλάς σύντομα και φυσικά σαν άνθρωπος. Μία ερώτηση τη φορά. Ποτέ επαναλήψεις.
+
+ΩΡΑΡΙΟ:
+Δευτέρα έως Σάββατο, από τις δέκα το πρωί έως τις εννέα το βράδυ. Κυριακή κλειστά.
+
+ΥΠΗΡΕΣΙΕΣ:
+- Κούρεμα Fade: δεκαπέντε ευρώ
+- Κούρεμα Fade με ψαλίδι: δεκαοκτώ ευρώ
+- Κούρεμα Fade με γενειάδα: είκοσι δύο ευρώ
+- Μόνο γενειάδα: δέκα ευρώ
+- Styling: δώδεκα ευρώ
+- Παιδικό: δώδεκα ευρώ
+
+ΚΡΑΤΗΣΗ ΡΑΝΤΕΒΟΥ:
+Πληροφορίες που χρειάζεσαι: υπηρεσία, ημερομηνία, ώρα, όνομα.
+Μόλις τα έχεις όλα, επιβεβαίωσε και τελείωσε.
+
+ΚΑΝΟΝΕΣ:
+- Μιλάς ΠΑΝΤΑ στα Ελληνικά
+- Ώρες και τιμές με λόγια
+- Αν ρωτηθείς αν είσαι AI: "Είμαι ο ψηφιακός βοηθός του On The Grind"
+"""
+
+
+async def entrypoint(ctx: JobContext):
+    """Main entrypoint for voice agent"""
+    
+    logger.info(f"🎙️ Starting voice agent for room: {ctx.room.name}")
+    
+    # Connect to room
+    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    
+    # Create voice agent
+    agent = voice.Agent(
+        vad=rtc.VAD.from_silence_detector(),
+        stt=deepgram.STT(model="nova-2", language="el"),
+        llm=anthropic.LLM(model="claude-3-haiku-20240307"),
+        tts=cartesia.TTS(
+            voice=os.getenv("CARTESIA_VOICE_ID"),
+            language="el"
+        ),
+        chat_ctx=llm.ChatContext().append(
+            role="system",
+            text=SYSTEM_PROMPT
+        )
     )
-    return {"reply": response.content[0].text}
+    
+    # Start agent
+    agent.start(ctx.room)
+    
+    # Wait for participant
+    participant = await ctx.wait_for_participant()
+    logger.info(f"📞 Participant joined: {participant.identity}")
+    
+    # Start conversation
+    await agent.say("Γεια σου! Καλώς ήρθες στο On The Grind. Πώς μπορώ να σε βοηθήσω;")
+    
+    logger.info("✅ Voice agent active")
 
-@app.post("/inbound-call")
-async def inbound_call(request: Request):
-    body = await request.json()
-    print("TELNYX WEBHOOK:", body)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=120,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": "Γεια σου"}]
-    )
-
-    reply = response.content[0].text
-
-    return JSONResponse({
-        "actions": [
-            {"answer": {}},
-            {
-                "speak": {
-                    "language": "el-GR",
-                    "voice": "female",
-                    "text": reply
-                }
-            }
-        ]
-    })
+if __name__ == "__main__":
+    # Start health server in background
+    def run_health_server():
+        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")), log_level="info")
+    
+    health_thread = Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    logger.info("✅ Health server started on port 8080")
+    
+    # Run LiveKit agent
+    logger.info("🎙️ Starting LiveKit agent worker...")
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))

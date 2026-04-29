@@ -113,4 +113,5 @@ if __name__ == "__main__":
     
     # Run LiveKit agent
     logger.info("🎙️ Starting LiveKit agent worker...")
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    cli.run_app(WorkerOptions(
+        agent_name=os.getenv("AGENT_NAME", "on-the-grind-ai"),entrypoint_fnc=entrypoint))

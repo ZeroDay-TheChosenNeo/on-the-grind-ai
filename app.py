@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import (
     AutoSubscribe,
+from livekit import agents
+
     JobContext,
     WorkerOptions,
     cli,

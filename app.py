@@ -76,7 +76,7 @@ async def entrypoint(ctx: JobContext):
     
     # Create voice agent
     agent = voice.Agent(
-        vad=rtc.VAD.from_silence_detector(),
+        vad=agents.vad.silero.VAD.load(),
         stt=deepgram.STT(model="nova-2", language="el"),
         llm=anthropic.LLM(model="claude-3-haiku-20240307"),
         tts=cartesia.TTS(

@@ -9,13 +9,14 @@ from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import (
     AutoSubscribe,
-from livekit import agents
-
     JobContext,
     WorkerOptions,
     cli,
     llm,
     voice,
+    vad,
+from livekit.plugins import silero
+
 )
 from livekit.plugins import deepgram, cartesia, anthropic
 from fastapi import FastAPI
@@ -78,7 +79,7 @@ async def entrypoint(ctx: JobContext):
     
     # Create voice agent
     agent = voice.Agent(
-        vad=agents.vad.silero.VAD.load(),
+        vad=silero.VAD.load(),
         stt=deepgram.STT(model="nova-2", language="el"),
         llm=anthropic.LLM(model="claude-3-haiku-20240307"),
         tts=cartesia.TTS(
@@ -111,11 +112,11 @@ if __name__ == "__main__":
     
     health_thread = Thread(target=run_health_server, daemon=True)
     health_thread.start()
-    logger.info("✅ Health server started on port 8080")
+    logger.info(f"✅ Health server started on port {os.getenv('PORT', '8080')}")
     
     # Run LiveKit agent
     logger.info("🎙️ Starting LiveKit agent worker...")
     cli.run_app(WorkerOptions(
-        agent_name=os.getenv("AGENT_NAME", "on-the-grind-ai"),entrypoint_fnc=entrypoint))
-        entrypoint_fnc=entrypoint
+        entrypoint_fnc=entrypoint,
+        agent_name=os.getenv("AGENT_NAME", "on-the-grind-ai")
     ))

@@ -28,7 +28,7 @@ async def telnyx_voice(request: Request):
     texml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Sip>sip:cigk9q51@sip.livekit.cloud;transport=tls</Sip>
+    <Sip>sip:+16468806945@cigk9q51.sip.livekit.cloud;transport=tls</Sip>
   </Dial>
 </Response>"""
     return Response(content=texml, media_type="application/xml")

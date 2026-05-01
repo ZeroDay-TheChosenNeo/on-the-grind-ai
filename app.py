@@ -19,17 +19,16 @@ app = FastAPI()
 async def health():
     return {"status": "healthy"}
 
-LIVEKIT_SIP_DOMAIN = "cigk9q51.sip.livekit.cloud"
-TELNYX_NUMBER = "+16468806945"
-
 @app.post("/telnyx/voice")
 async def telnyx_voice(request: Request):
-    body = await request.body()
-    logger.info(f"Telnyx webhook received: {body[:200]}")
-    texml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    form = await request.form()
+    call_sid = form.get("CallSid", form.get("call_sid", "unknown"))
+    from_number = form.get("From", form.get("from", "unknown"))
+    logger.info(f"Telnyx webhook: CallSid={call_sid} From={from_number}")
+    texml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Sip>{TELNYX_NUMBER}@{LIVEKIT_SIP_DOMAIN};transport=tls</Sip>
+    <Sip>sip:cigk9q51@sip.livekit.cloud;transport=tls</Sip>
   </Dial>
 </Response>"""
     return Response(content=texml, media_type="application/xml")

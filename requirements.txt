@@ -1,8 +1,9 @@
 livekit
-livekit-agents
+livekit-agents[codecs]
 livekit-plugins-deepgram
 livekit-plugins-cartesia
 livekit-plugins-anthropic
+livekit-plugins-silero
 fastapi
 uvicorn[standard]
 anthropic

@@ -21,14 +21,15 @@ async def health():
 
 @app.post("/telnyx/voice")
 async def telnyx_voice(request: Request):
-    form = await request.form()
-    call_sid = form.get("CallSid", form.get("call_sid", "unknown"))
-    from_number = form.get("From", form.get("from", "unknown"))
-    logger.info(f"Telnyx webhook: CallSid={call_sid} From={from_number}")
+    try:
+        body = await request.body()
+        logger.info(f"Telnyx webhook hit: {body[:300]}")
+    except Exception:
+        pass
     texml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Sip>sip:+16468806945@cigk9q51.sip.livekit.cloud;transport=tls</Sip>
+    <Sip>sip:+16468806945@cigk9q51.sip.livekit.cloud</Sip>
   </Dial>
 </Response>"""
     return Response(content=texml, media_type="application/xml")

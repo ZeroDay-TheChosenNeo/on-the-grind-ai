@@ -19,20 +19,20 @@ app = FastAPI()
 async def health():
     return {"status": "healthy"}
 
-@app.post("/telnyx/voice")
-async def telnyx_voice(request: Request):
+@app.post("/twilio/voice")
+async def twilio_voice(request: Request):
     try:
         body = await request.body()
-        logger.info(f"Telnyx webhook hit: {body[:300]}")
+        logger.info(f"Twilio webhook hit: {body[:300]}")
     except Exception:
         pass
-    texml = """<?xml version="1.0" encoding="UTF-8"?>
+    twiml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Sip username="telnyx-otg" password="Gr1nd2026!">sip:+16468806945@cigk9q51.sip.livekit.cloud</Sip>
+    <Sip username="telnyx-otg" password="Gr1nd2026!">sip:+16813293372@cigk9q51.sip.livekit.cloud</Sip>
   </Dial>
 </Response>"""
-    return Response(content=texml, media_type="application/xml")
+    return Response(content=twiml, media_type="application/xml")
 
 INSTRUCTIONS = """Είσαι η Νίκη, η τηλεφωνική βοηθός του κομμωτηρίου "On The Grind" στη Θεσσαλονίκη.
 

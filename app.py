@@ -19,6 +19,21 @@ app = FastAPI()
 async def health():
     return {"status": "healthy"}
 
+LIVEKIT_SIP_DOMAIN = "cigk9q51.sip.livekit.cloud"
+TELNYX_NUMBER = "+16468806945"
+
+@app.post("/telnyx/voice")
+async def telnyx_voice(request: Request):
+    body = await request.body()
+    logger.info(f"Telnyx webhook received: {body[:200]}")
+    texml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Sip>{TELNYX_NUMBER}@{LIVEKIT_SIP_DOMAIN};transport=tls</Sip>
+  </Dial>
+</Response>"""
+    return Response(content=texml, media_type="application/xml")
+
 INSTRUCTIONS = """Είσαι η Νίκη, η τηλεφωνική βοηθός του κομμωτηρίου "On The Grind" στη Θεσσαλονίκη.
 
 ΚΑΝΟΝΕΣ:

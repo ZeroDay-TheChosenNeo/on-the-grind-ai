@@ -1,9 +1,12 @@
 import os
 import logging
+import asyncio
 from dotenv import load_dotenv
 from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents import voice
 from livekit.plugins import deepgram, cartesia, anthropic, silero
+from livekit import api as livekit_api
+from livekit.api import WebhookReceiver
 from fastapi import FastAPI, Request, Response
 import uvicorn
 from threading import Thread
@@ -12,6 +15,11 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+AGENT_NAME = os.getenv("AGENT_NAME", "on-the-grind-ai")
+
 app = FastAPI()
 
 @app.get("/")
@@ -19,20 +27,42 @@ app = FastAPI()
 async def health():
     return {"status": "healthy"}
 
-@app.post("/twilio/voice")
-async def twilio_voice(request: Request):
+@app.post("/livekit/webhook")
+async def livekit_webhook(request: Request):
+    body = await request.body()
+    auth_header = request.headers.get("Authorization", "")
     try:
-        body = await request.body()
-        logger.info(f"Twilio webhook hit: {body[:300]}")
-    except Exception:
-        pass
-    twiml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Dial>
-    <Sip username="telnyx-otg" password="Gr1nd2026!">sip:+16813293372@cigk9q51.sip.livekit.cloud</Sip>
-  </Dial>
-</Response>"""
-    return Response(content=twiml, media_type="application/xml")
+        receiver = WebhookReceiver(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+        event = receiver.receive(body.decode(), auth_header)
+
+        if event.HasField("room_started"):
+            room_name = event.room_started.room.name
+            logger.info(f"Room started: {room_name}")
+            # Dispatch agent to any SIP-created room
+            if room_name.startswith("sip-"):
+                logger.info(f"SIP room detected, dispatching agent to {room_name}")
+                asyncio.create_task(_dispatch_agent(room_name))
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+    return {"ok": True}
+
+async def _dispatch_agent(room_name: str):
+    try:
+        lk = livekit_api.LiveKitAPI(
+            url=LIVEKIT_URL,
+            api_key=LIVEKIT_API_KEY,
+            api_secret=LIVEKIT_API_SECRET,
+        )
+        dispatch = await lk.agent_dispatch.create_dispatch(
+            livekit_api.CreateAgentDispatchRequest(
+                agent_name=AGENT_NAME,
+                room=room_name,
+            )
+        )
+        logger.info(f"Agent dispatched: {dispatch.id} to room {room_name}")
+        await lk.aclose()
+    except Exception as e:
+        logger.error(f"Failed to dispatch agent: {e}")
 
 INSTRUCTIONS = """Είσαι η Νίκη, η τηλεφωνική βοηθός του κομμωτηρίου "On The Grind" στη Θεσσαλονίκη.
 
@@ -88,5 +118,5 @@ if __name__ == "__main__":
     ).start()
     cli.run_app(WorkerOptions(
         entrypoint_fnc=entrypoint,
-        agent_name=os.getenv("AGENT_NAME", "on-the-grind-ai"),
+        agent_name=AGENT_NAME,
     ))

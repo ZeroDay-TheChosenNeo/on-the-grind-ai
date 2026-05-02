@@ -108,13 +108,13 @@ async def entrypoint(ctx: JobContext):
         emotion=["positivity:low"],  # Friendly but professional
     )
     
-    # Configure optimized VAD (Voice Activity Detection)
-    # Reduces the 5-second gap after user speaks
-    vad = silero.VAD.load(
-        min_silence_duration=0.8,  # Wait 800ms of silence before ending turn (default: 550ms but felt slow)
-        min_speech_duration=0.05,  # Minimum 50ms to trigger speech detection
-        activation_threshold=0.45,  # More sensitive to voice (default: 0.5)
-    )
+    
+    
+    
+        
+        
+        
+   
     
     # Create voice assistant
     assistant = voice.VoiceAssistant(

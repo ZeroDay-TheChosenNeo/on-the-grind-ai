@@ -15,7 +15,7 @@ from livekit.agents import (
     cli,
     llm,
 )
-from livekit.agents.voice_assistant import VoiceAssistant
+from livekit.agents import voice
 from livekit.plugins import deepgram, cartesia, anthropic, silero
 from livekit import rtc
 from fastapi import FastAPI
@@ -117,7 +117,7 @@ async def entrypoint(ctx: JobContext):
     )
     
     # Create voice assistant
-    assistant = VoiceAssistant(
+    assistant = voice.VoiceAssistant(
         vad=vad,  # Use optimized VAD
         stt=stt,
         llm=llm_instance,

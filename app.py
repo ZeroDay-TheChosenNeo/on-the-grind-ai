@@ -117,7 +117,7 @@ async def entrypoint(ctx: JobContext):
    
     
     # Create voice assistant
-    assistant = voice.VoiceAssistant(
+    assistant = voice.VoiceSession(
         stt=stt,
         llm=llm_instance,
         tts=tts,
@@ -139,7 +139,7 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"📞 Caller connected: {participant.identity}")
 
     # Start assistant
-    assistant.start(ctx.room)
+    session = await assistant.astart(ctx.room)
 
     
     # Greet caller with new greeting

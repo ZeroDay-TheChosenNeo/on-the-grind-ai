@@ -131,12 +131,16 @@ async def entrypoint(ctx: JobContext):
         ),
     )
     
-    # Start assistant
-    assistant.start(ctx.room)
+   
+    
     
     # Wait for caller
     participant = await ctx.wait_for_participant()
     logger.info(f"📞 Caller connected: {participant.identity}")
+
+    # Start assistant
+    assistant.start(ctx.room)
+
     
     # Greet caller with new greeting
     await assistant.say("On The Grind, παρακαλώ;")

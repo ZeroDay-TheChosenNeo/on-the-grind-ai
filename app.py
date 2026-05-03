@@ -72,7 +72,7 @@ async def _dispatch_agent(room_name: str):
     except Exception as e:
         logger.error(f"Failed to dispatch agent: {e}")
 
-# NEW OPTIMIZED SYSTEM PROMPT
+# OPTIMIZED SYSTEM PROMPT WITH STRUCTURED FLOW
 INSTRUCTIONS = """Είσαι η ψηφιακή γραμματέας του "On The Grind", premium barbershop στη Θεσσαλονίκη, Αριστοτέλους 31. Τηλέφωνο: 6934354652.
 
 ΣΗΜΕΡΙΝΗ ΗΜΕΡΟΜΗΝΙΑ: Τρίτη, 29 Απριλίου 2026
@@ -119,11 +119,7 @@ INSTRUCTIONS = """Είσαι η ψηφιακή γραμματέας του "On T
 "Σε τι όνομα;"
 Περίμενε απάντηση.
 
-ΒΗΜΑ 7 - ΠΑΡΕ ΤΗΛΕΦΩΝΟ:
-"Και έναν αριθμό τηλεφώνου παρακαλώ;"
-Περίμενε απάντηση.
-
-ΒΗΜΑ 8 - ΕΠΙΒΕΒΑΙΩΣΗ ΚΑΙ ΚΛΕΙΣΙΜΟ:
+ΒΗΜΑ 7 - ΕΠΙΒΕΒΑΙΩΣΗ ΚΑΙ ΚΛΕΙΣΙΜΟ:
 Πες ΜΙΑ φυσική πρόταση με ΟΛΑ τα στοιχεία:
 "Τέλεια! Σου κλείνω ραντεβού για [ΕΙΔΟΣ ΚΟΥΡΕΜΑΤΟΣ] την [ΜΕΡΑ] στις [ΩΡΑ] στο όνομα [ΟΝΟΜΑ]. Θα σε περιμένουμε!"
 
@@ -147,6 +143,15 @@ async def entrypoint(ctx: JobContext):
     logger.info("Job received, connecting to room")
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     
+    # Extract caller phone number from SIP room name
+    # Format: sip-_+306944169406_WuoNKcxjn5z9
+    caller_phone = None
+    if ctx.room.name.startswith("sip-"):
+        parts = ctx.room.name.split("_")
+        if len(parts) >= 2:
+            caller_phone = parts[1]  # +306944169406
+            logger.info(f"📞 Caller phone extracted: {caller_phone}")
+    
     session = voice.AgentSession(
         vad=silero.VAD.load(),
         stt=deepgram.STT(model="nova-2", language="el"),
@@ -154,7 +159,7 @@ async def entrypoint(ctx: JobContext):
         tts=cartesia.TTS(
             voice=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
             language="el",
-            speed=1.1,  # CHANGED: Slower for clarity (was default 1.0)
+            speed=1.1,  # Faster for natural flow
         ),
     )
     
@@ -162,8 +167,12 @@ async def entrypoint(ctx: JobContext):
     await session.start(agent=agent, room=ctx.room)
     
     logger.info("Session started, saying greeting")
-    # NEW GREETING MESSAGE
     await session.say("On The Grind, παρακαλώ;")
+    
+    # TODO: After conversation ends, extract booking details and send to Calendar
+    # Booking data needed: name, date, time, service type, duration
+    # Phone number: caller_phone (already extracted)
+    # Next step: Add LLM function calling to extract booking details from conversation
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))

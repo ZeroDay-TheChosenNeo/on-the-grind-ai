@@ -1,45 +1,79 @@
-"""
-On The Grind AI - Production Voice Agent (OPTIMIZED)
-LiveKit + Deepgram Nova-2 (STT) + Claude Haiku (LLM) + Cartesia (TTS)
-Cost-optimized for Greek market while maintaining quality
-"""
-
 import os
 import logging
 import asyncio
 from dotenv import load_dotenv
-from livekit.agents import (
-    AutoSubscribe,
-    JobContext,
-    WorkerOptions,
-    cli,
-    llm,
-)
+from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents import voice
 from livekit.plugins import deepgram, cartesia, anthropic, silero
-from livekit import rtc
-from fastapi import FastAPI
+from livekit import api as livekit_api
+from livekit.api import WebhookReceiver
+from fastapi import FastAPI, Request, Response
 import uvicorn
 from threading import Thread
 
-# Load environment variables
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FastAPI app for Railway health checks
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+AGENT_NAME = os.getenv("AGENT_NAME", "on-the-grind-ai")
+
 app = FastAPI()
 
 @app.get("/")
 @app.get("/health")
 async def health():
-    """Health check endpoint for Railway"""
-    return {"status": "healthy", "service": "on-the-grind-ai"}
+    return {"status": "healthy"}
 
-# Greek system prompt - optimized for natural conversation
-SYSTEM_PROMPT = """Είσαι η ψηφιακή γραμματέας του "On The Grind", ενός premium barbershop στη Θεσσαλονίκη, στην Αριστοτέλους 31. Τηλέφωνο: 6934354652.
+@app.post("/livekit/webhook")
+async def livekit_webhook(request: Request):
+    body = await request.body()
+    auth_header = request.headers.get("Authorization", "")
+    
+    try:
+        receiver = WebhookReceiver(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+        event = receiver.receive(body.decode(), auth_header)
+        
+        if event.HasField("room_started"):
+            room_name = event.room_started.room.name
+            logger.info(f"Room started: {room_name}")
+            
+            # Dispatch agent to any SIP-created room
+            if room_name.startswith("sip-"):
+                logger.info(f"SIP room detected, dispatching agent to {room_name}")
+                asyncio.create_task(_dispatch_agent(room_name))
+                
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+    
+    return {"ok": True}
+
+async def _dispatch_agent(room_name: str):
+    try:
+        lk = livekit_api.LiveKitAPI(
+            url=LIVEKIT_URL,
+            api_key=LIVEKIT_API_KEY,
+            api_secret=LIVEKIT_API_SECRET,
+        )
+        
+        dispatch = await lk.agent_dispatch.create_dispatch(
+            livekit_api.CreateAgentDispatchRequest(
+                agent_name=AGENT_NAME,
+                room=room_name,
+            )
+        )
+        
+        logger.info(f"Agent dispatched: {dispatch.id} to room {room_name}")
+        await lk.aclose()
+        
+    except Exception as e:
+        logger.error(f"Failed to dispatch agent: {e}")
+
+# NEW OPTIMIZED SYSTEM PROMPT
+INSTRUCTIONS = """Είσαι η ψηφιακή γραμματέας του "On The Grind", ενός premium barbershop στη Θεσσαλονίκη, στην Αριστοτέλους 31. Τηλέφωνο: 6934354652.
 
 Η σημερινή ημερομηνία είναι: 28 Απριλίου 2026, Δευτέρα.
 
@@ -74,94 +108,38 @@ SYSTEM_PROMPT = """Είσαι η ψηφιακή γραμματέας του "On 
 - Μιλάς ΠΑΝΤΑ στα Ελληνικά
 - "On The Grind" = Αγγλική προφορά (όπως "ον δε γκράιντ")
 - ΜΗ λες υπηρεσίες αν δεν ρωτηθείς
-- Επιβεβαίωση = ΜΙΑ φυσική πρόταση
-"""
-
+- Επιβεβαίωση = ΜΙΑ φυσική πρόταση"""
 
 async def entrypoint(ctx: JobContext):
-    """
-    Main entrypoint - called when someone calls the phone number
-    """
-    
-    logger.info(f"🎙️ New call connected to room: {ctx.room.name}")
-    
-    # Connect to LiveKit room
+    logger.info("Job received, connecting to room")
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     
-    # Configure STT (Speech-to-Text) - Deepgram Nova-2 Greek (better accuracy)
-    stt = deepgram.STT(
-        model="nova-2",  # Better accuracy: 8.4% WER vs Base 12% WER
-        language="el",  # Greek
-    )
-    
-    # Configure LLM - Claude Haiku (BEST for Greek)
-    llm_instance = anthropic.LLM(
-        model="claude-3-haiku-20240307",
-        temperature=0.2,  # Fast & consistent responses
-    )
-    
-    # Configure TTS (Text-to-Speech) - Cartesia Greek voice with optimizations
-    tts = cartesia.TTS(
-        voice=os.getenv("CARTESIA_VOICE_ID"),  # Greek voice from env
-        language="el",  # Greek
-        speed=0.95,  # Slightly slower for clarity (was 1.1 - too fast for lists)
-        emotion=["positivity:low"],  # Friendly but professional
-    )
-    
-    
-    
-    
-        
-        
-        
-   
-    
-    # Create voice assistant
-    assistant = voice.VoiceSession(
-        stt=stt,
-        llm=llm_instance,
-        tts=tts,
-        chat_ctx=llm.ChatContext(
-            messages=[
-                llm.ChatMessage(
-                    role="system",
-                    content=SYSTEM_PROMPT,
-                )
-            ]
+    session = voice.AgentSession(
+        vad=silero.VAD.load(),
+        stt=deepgram.STT(model="nova-2", language="el"),
+        llm=anthropic.LLM(model="claude-haiku-4-5"),
+        tts=cartesia.TTS(
+            voice=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
+            language="el",
+            speed=0.95,  # CHANGED: Slower for clarity (was default 1.0)
         ),
     )
     
-   
+    agent = voice.Agent(instructions=INSTRUCTIONS)
+    await session.start(agent=agent, room=ctx.room)
     
-    
-    # Wait for caller
-    participant = await ctx.wait_for_participant()
-    logger.info(f"📞 Caller connected: {participant.identity}")
-
-    # Start assistant
-    session = await assistant.astart(ctx.room)
-
-    
-    # Greet caller with new greeting
-    await assistant.say("On The Grind, παρακαλώ;")
-    
-    logger.info("✅ Voice assistant active and listening")
-
+    logger.info("Session started, saying greeting")
+    # NEW GREETING MESSAGE
+    await session.say("On The Grind, παρακαλώ;")
 
 if __name__ == "__main__":
-    # Start FastAPI health server in background thread
-    def run_health_server():
-        uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
+    port = int(os.getenv("PORT", "8080"))
+    Thread(
+        target=lambda: uvicorn.run(app, host="0.0.0.0", port=port),
+        daemon=True
+    ).start()
     
-    health_thread = Thread(target=run_health_server, daemon=True)
-    health_thread.start()
-    logger.info("✅ Health server started on port 8080")
-    
-    # Run LiveKit agent worker (main process)
-    logger.info("🎙️ Starting LiveKit voice agent worker...")
-    cli.run_app(
-        WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            agent_name="on-the-grind-ai",
-        )
-    )
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        agent_name=AGENT_NAME,
+    ))

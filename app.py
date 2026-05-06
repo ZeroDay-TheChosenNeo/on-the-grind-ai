@@ -137,6 +137,7 @@ INSTRUCTIONS = """Είσαι η ψηφιακή γραμματέας του "On T
 - Ώρες: Πάντα συγκεκριμένες (όχι "μεσημέρι" ή "απόγευμα")
 - ΜΙΑ ερώτηση τη φορά
 - Σύντομες απαντήσεις
+- ΜΗ επαναλάβεις την ίδια ερώτηση πάνω από μία φορά
 - Επιβεβαίωση = ΜΙΑ πρόταση με ΟΛΑ τα στοιχεία"""
 
 async def entrypoint(ctx: JobContext):
@@ -153,13 +154,17 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"📞 Caller phone extracted: {caller_phone}")
     
     session = voice.AgentSession(
-        vad=silero.VAD.load(),
+        vad=silero.VAD.load(
+            min_silence_duration=0.5,  # FIXED: 500ms silence = end of speech (was default 1.0s)
+            activation_threshold=0.5,   # FIXED: More sensitive detection
+            prefix_padding_duration=0.2,  # FIXED: Less padding for faster response
+        ),
         stt=deepgram.STT(model="nova-2", language="el"),
         llm=anthropic.LLM(model="claude-haiku-4-5"),
         tts=cartesia.TTS(
             voice=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
             language="el",
-            speed=1.1,  # Faster for natural flow
+            speed=1.1,
         ),
     )
     
@@ -168,11 +173,6 @@ async def entrypoint(ctx: JobContext):
     
     logger.info("Session started, saying greeting")
     await session.say("On The Grind, παρακαλώ;")
-    
-    # TODO: After conversation ends, extract booking details and send to Calendar
-    # Booking data needed: name, date, time, service type, duration
-    # Phone number: caller_phone (already extracted)
-    # Next step: Add LLM function calling to extract booking details from conversation
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))

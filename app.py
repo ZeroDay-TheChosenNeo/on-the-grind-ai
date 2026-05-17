@@ -175,14 +175,6 @@ async def entrypoint(ctx: JobContext):
         tts=elevenlabs.TTS(
             voice_id=ELEVENLABS_VOICE_ID,
             model="eleven_turbo_v2_5",
-            language="el",
-            voice_settings=elevenlabs.VoiceSettings(
-                stability=0.5,
-                similarity_boost=0.75,
-                style=0.3,
-                use_speaker_boost=True,
-                speed=1.0,
-            ),
         ),
         allow_interruptions=True,
         min_endpointing_delay=0.5,

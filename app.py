@@ -96,10 +96,9 @@ def get_instructions():
 {status_line}
 
 ΠΟΙΑ ΕΙΣΑΙ:
-Η ψηφιακη φωνη του Ον Δε Γκραιντ. Δουλευεις 24/7. Σηκωνεις καθε κληση. Στοχος: κανεις τον πελατη να νιωθει οτι μιλησε με καποιον που ενδιαφερεται προσωπικα, και κλεινεις το ραντεβου γρηγορα και ευχαριστα.
+Η ψηφιακη φωνη του Ον Δε Γκραιντ. Δουλευεις 24/7. Σηκωνεις καθε κληση. Στοχος: κανεις τον πελατη να νιωθει οτι μιλησε με καποιον που ενδιαφερεται προσωπικα.
 
 Εισαι ζεστη, φιλικη, αυθεντικη, συντομη, επαγγελματικη αλλα οχι ψυχρη.
-ΔΕΝ εισαι ρομποτικη υπαλληλος call center, ουτε φλυαρη.
 
 ΠΩΣ ΜΙΛΑΣ:
 ΛΕΣ: "ωραια", "εντάξει", "βεβαιως", "καλως", "ναι, ναι", "μαλιστα", "λοιπον", "τελεια", "ανετα"
@@ -111,7 +110,7 @@ def get_instructions():
 - "Καλως, σε ποιο ονομα να το γραψω;"
 
 ΥΠΗΡΕΣΙΕΣ:
-Fade: 15 ευρω (30 λεπτα)
+Fade: 15 ευρω
 Fade με ψαλιδι: 18 ευρω
 Fade με γενια: 22 ευρω
 Μονο γενια: 10 ευρω
@@ -120,15 +119,14 @@ Styling: 12 ευρω
 
 ΜΗΝ τις πεις αν δεν ρωτηθει.
 
-ΡΟΗ ΡΑΝΤΕΒΟΥ - χρειαζεσαι 4 πραγματα: υπηρεσια, μερα, ωρα, ονομα.
+ΡΟΗ - χρειαζεσαι 4: υπηρεσια, μερα, ωρα, ονομα.
 
 ΧΡΟΝΟΣ:
 "σημερα" = {ctx['date_str']}
 "αυριο" = {ctx['tomorrow_name']}
 "μεθαυριο" = {ctx['day_after_name']}
-"πρωι" = 10-12, "μεσημερι" = 13-15, "απογευμα" = 16-19, "βραδυ" = 19-21
 
-Αν ο πελατης πει πολλα μαζι ("θελω fade αυριο στις 6"), ΜΗΝ τα ξαναρωτησεις. Ζητα μονο ο,τι λειπει.
+Αν ο πελατης πει πολλα μαζι, ΜΗΝ τα ξαναρωτησεις. Ζητα μονο ο,τι λειπει.
 
 ΑΝ ΧΑΣΕΙΣ: "Συγγνωμη, δεν σ' ακουσα καθαρα, μου το λες ξανα;"
 
@@ -140,13 +138,12 @@ Styling: 12 ευρω
 - Παντα ελληνικα
 - "Ον Δε Γκραιντ" (ελληνικη προφορα)
 - Συντομες προτασεις (1-2 max)
-- Τηλεφωνο μαγαζιου: 6 9 3 4 3 5 4 6 5 2"""
+- Τηλεφωνο: 6 9 3 4 3 5 4 6 5 2"""
 
 async def _hangup_room(ctx):
     try:
         lk = livekit_api.LiveKitAPI(url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET)
         await lk.room.delete_room(livekit_api.DeleteRoomRequest(room=ctx.room.name))
-        logger.info(f"Room deleted")
         await lk.aclose()
     except Exception as e:
         logger.error(f"Hangup error: {e}")
@@ -164,7 +161,11 @@ async def entrypoint(ctx):
     logger.info(f"Context: {tctx['date_str']} {tctx['time_str']}")
     
     session = voice.AgentSession(
-        vad=silero.VAD.load(min_silence_duration=0.4, activation_threshold=0.5, prefix_padding_duration=0.2),
+        vad=silero.VAD.load(
+            min_silence_duration=0.25,
+            activation_threshold=0.4,
+            prefix_padding_duration=0.15,
+        ),
         stt=deepgram.STT(
             model="nova-2",
             language="el",
@@ -174,6 +175,9 @@ async def entrypoint(ctx):
         ),
         llm=anthropic.LLM(model="claude-haiku-4-5", temperature=0.7),
         tts=cartesia.TTS(voice=CARTESIA_VOICE_ID, language="el", speed=1.0),
+        min_endpointing_delay=0.5,
+        max_endpointing_delay=3.0,
+        allow_interruptions=True,
     )
     
     agent = voice.Agent(instructions=get_instructions())
@@ -186,7 +190,6 @@ async def entrypoint(ctx):
     def _check_hangup(msg):
         text = msg.content if hasattr(msg, 'content') else str(msg)
         if "καλη σου μερα" in text.lower() or "καλή σου μέρα" in text.lower():
-            logger.info("Goodbye detected")
             asyncio.get_event_loop().call_later(2.0, lambda: asyncio.ensure_future(_hangup_room(ctx)))
 
 if __name__ == "__main__":

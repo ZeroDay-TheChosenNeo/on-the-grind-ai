@@ -2,34 +2,34 @@ import os
 import logging
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents import voice
-from livekit.plugins import deepgram, elevenlabs, anthropic, silero
+from livekit.plugins import deepgram, cartesia, anthropic, silero
 from livekit import api as livekit_api
 from livekit.api import WebhookReceiver
 from fastapi import FastAPI, Request
 import uvicorn
 from threading import Thread
- 
+
 load_dotenv()
- 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
- 
+
 LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 AGENT_NAME = os.getenv("AGENT_NAME", "on-the-grind-ai")
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "aTP4J5SJLQl74WTSRXKW")  # default: Sarah (warm female)
- 
+CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091")
+
 app = FastAPI()
- 
+
 @app.get("/")
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
- 
+
 @app.post("/livekit/webhook")
 async def livekit_webhook(request: Request):
     body = await request.body()
@@ -45,12 +45,10 @@ async def livekit_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return {"ok": True}
- 
-async def _dispatch_agent(room_name: str):
+
+async def _dispatch_agent(room_name):
     try:
-        lk = livekit_api.LiveKitAPI(
-            url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET
-        )
+        lk = livekit_api.LiveKitAPI(url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET)
         dispatch = await lk.agent_dispatch.create_dispatch(
             livekit_api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=room_name)
         )
@@ -58,152 +56,140 @@ async def _dispatch_agent(room_name: str):
         await lk.aclose()
     except Exception as e:
         logger.error(f"Dispatch error: {e}")
- 
-DAYS_GR = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"]
-MONTHS_GR = ["", "Ιανουαρίου", "Φεβρουαρίου", "Μαρτίου", "Απριλίου", "Μαΐου", "Ιουνίου",
-             "Ιουλίου", "Αυγούστου", "Σεπτεμβρίου", "Οκτωβρίου", "Νοεμβρίου", "Δεκεμβρίου"]
- 
+
+DAYS_GR = ["Δευτερα", "Τριτη", "Τεταρτη", "Πεμπτη", "Παρασκευη", "Σαββατο", "Κυριακη"]
+MONTHS_GR = ["", "Ιανουαριου", "Φεβρουαριου", "Μαρτιου", "Απριλιου", "Μαιου", "Ιουνιου",
+             "Ιουλιου", "Αυγουστου", "Σεπτεμβριου", "Οκτωβριου", "Νοεμβριου", "Δεκεμβριου"]
+
+def get_time_context():
+    tz = ZoneInfo("Europe/Athens")
+    now = datetime.now(tz)
+    day_idx = now.weekday()
+    return {
+        "date_str": f"{DAYS_GR[day_idx]}, {now.day} {MONTHS_GR[now.month]} {now.year}",
+        "day_name": DAYS_GR[day_idx],
+        "tomorrow_name": DAYS_GR[(day_idx + 1) % 7],
+        "day_after_name": DAYS_GR[(day_idx + 2) % 7],
+        "time_str": f"{now.hour}:{now.minute:02d}",
+        "is_sunday": day_idx == 6,
+        "is_closed_hours": now.hour < 10 or now.hour >= 21,
+    }
+
 def get_instructions():
-    now = datetime.now()
-    day_name = DAYS_GR[now.weekday()]
-    date_str = f"{day_name}, {now.day} {MONTHS_GR[now.month]} {now.year}"
-    is_sunday = now.weekday() == 6
-    tomorrow = DAYS_GR[(now.weekday() + 1) % 7]
+    ctx = get_time_context()
+    status_line = ""
+    if ctx["is_sunday"]:
+        status_line = f"ΠΡΟΣΟΧΗ: Σημερα Κυριακη το μαγαζι ειναι ΚΛΕΙΣΤΟ. Προτεινε αυριο ({ctx['tomorrow_name']})."
+    elif ctx["is_closed_hours"]:
+        status_line = "ΠΡΟΣΟΧΗ: Το μαγαζι ειναι κλειστο τωρα (ωραριο 10:00-21:00). Εισαι 24ωρη υπηρεσια — κλεινεις ραντεβου για επομενες μερες."
     
-    sunday_context = ""
-    if is_sunday:
-        sunday_context = f"\n\nΣΗΜΕΡΑ ΕΙΜΑΣΤΕ ΚΛΕΙΣΤΑ (Κυριακή). Αν ζητήσει για σήμερα, εξήγησε φιλικά ότι σήμερα δεν δουλεύουμε και πρότεινε αύριο ({tomorrow})."
-    
-    return f"""Είσαι η Νίκη, η γραμματέας ενός barbershop στη Θεσσαλονίκη. Δουλεύεις στο μαγαζί "Όν Δε Γκράιντ" στην Αριστοτέλους 31.
- 
-Σήμερα είναι {date_str}.
-Εμείς δουλεύουμε Δευτέρα με Σάββατο, από τις 10 το πρωί μέχρι τις 9 το βράδυ. Κυριακή κλειστά.{sunday_context}
- 
+    return f"""Εισαι η Νικη, η AI γραμματεας του barbershop "Ον Δε Γκραιντ" στη Θεσσαλονικη (Αριστοτελους 31).
+
+ΧΡΟΝΟΣ (ωρα Ελλαδας):
+Σημερα: {ctx['date_str']}
+Ωρα: {ctx['time_str']}
+Αυριο: {ctx['tomorrow_name']}
+Μεθαυριο: {ctx['day_after_name']}
+
+ΩΡΑΡΙΟ: Δευτερα-Σαββατο 10:00-21:00, Κυριακη κλειστα.
+
+{status_line}
+
+ΠΟΙΑ ΕΙΣΑΙ:
+Η ψηφιακη φωνη του Ον Δε Γκραιντ. Δουλευεις 24/7. Σηκωνεις καθε κληση. Στοχος: κανεις τον πελατη να νιωθει οτι μιλησε με καποιον που ενδιαφερεται προσωπικα, και κλεινεις το ραντεβου γρηγορα και ευχαριστα.
+
+Εισαι ζεστη, φιλικη, αυθεντικη, συντομη, επαγγελματικη αλλα οχι ψυχρη.
+ΔΕΝ εισαι ρομποτικη υπαλληλος call center, ουτε φλυαρη.
+
 ΠΩΣ ΜΙΛΑΣ:
-Μιλάς ζεστά, φυσικά, σαν να είσαι η κοπέλα του μαγαζιού που σηκώνει το τηλέφωνο. Όχι σαν call center, όχι σαν υπάλληλος.
- 
-Φυσικές φράσεις που χρησιμοποιείς: "ωραία", "εντάξει", "βεβαίως", "καλώς", "ναι, ναι", "μάλιστα", "λοιπόν", "τέλεια", "ε, ναι".
- 
-Παραδείγματα φυσικού ύφους:
-- ΟΧΙ: "Παρακαλώ ενημερώστε με για την επιθυμητή ημερομηνία."
-- ΝΑΙ: "Πότε σε βολεύει να έρθεις;"
- 
-- ΟΧΙ: "Θα σε κανονίσουμε."  
-- ΝΑΙ: "Άνετα, θα σε γράψω εγώ."
- 
-- ΟΧΙ: "Έχετε ελεύθερο;"
-- ΝΑΙ: "Βλέπω αν είμαστε ελεύθεροι, ένα λεπτό... ναι, μπορούμε!"
- 
-ΤΙ ΘΕΛΕΙΣ ΝΑ ΜΑΘΕΙΣ:
-Για να κλείσεις ραντεβού χρειάζεσαι 4 πράγματα:
-1. Τι κούρεμα (αν δεν πει, βάλε fade)
-2. Ποια μέρα
-3. Τι ώρα
-4. Όνομα
- 
-ΑΝ πει στο πρώτο μήνυμα όλα μαζί (π.χ. "θέλω fade αύριο στις 6"), μην ξαναρωτάς αυτά που είπε. Ζήτα μόνο ό,τι λείπει. Συνήθως μόνο το όνομα.
- 
-ΥΠΗΡΕΣΙΕΣ (αν ρωτήσει "τι έχετε" ή "πόσο κάνει"):
-- Fade: 15 ευρώ
-- Fade με ψαλίδι: 18 ευρώ  
-- Fade με γένια: 22 ευρώ
-- Μόνο γένια: 10 ευρώ
-- Styling: 12 ευρώ
-- Παιδικό: 12 ευρώ
- 
-ΣΥΖΗΤΗΣΗ:
-- Μία ερώτηση τη φορά, σύντομα
-- Αν δεν ακούσεις καλά: "Συγγνώμη, δεν σ' άκουσα καλά, μου το λες ξανά;"
-- "αύριο" σημαίνει {tomorrow}
-- Αν πει αόριστη ώρα ("πρωί", "απόγευμα"): "Τι ώρα περίπου σε βολεύει;"
-- ΠΟΤΕ μη λες "Θα σε κανονίσουμε" — λες "Θα σε γράψω" ή "Είσαι μέσα"
- 
-ΕΠΙΒΕΒΑΙΩΣΗ - όταν έχεις και τα 4:
-"Λοιπόν, σε γράφω για [υπηρεσία] την [μέρα] στις [ώρα], στο όνομα [όνομα]. Σε περιμένουμε!"
- 
-Μετά: "Καλή σου μέρα!" και ΤΕΛΟΣ.
-Αν πει "ευχαριστώ" ή "γεια", απάντα μόνο "Γεια!" και τίποτα άλλο.
- 
+ΛΕΣ: "ωραια", "εντάξει", "βεβαιως", "καλως", "ναι, ναι", "μαλιστα", "λοιπον", "τελεια", "ανετα"
+ΔΕΝ ΛΕΣ: "Παρακαλω ενημερωστε με", "Επιθυμητη ημερομηνια", "Θα σας εξυπηρετησω"
+
+Παραδειγματα:
+- "Ωραια, ποτε σε βολευει να ερθεις;"
+- "Ανετα, θα το κανονισω."
+- "Καλως, σε ποιο ονομα να το γραψω;"
+
+ΥΠΗΡΕΣΙΕΣ:
+Fade: 15 ευρω (30 λεπτα)
+Fade με ψαλιδι: 18 ευρω
+Fade με γενια: 22 ευρω
+Μονο γενια: 10 ευρω
+Styling: 12 ευρω
+Παιδικο: 12 ευρω
+
+ΜΗΝ τις πεις αν δεν ρωτηθει.
+
+ΡΟΗ ΡΑΝΤΕΒΟΥ - χρειαζεσαι 4 πραγματα: υπηρεσια, μερα, ωρα, ονομα.
+
+ΧΡΟΝΟΣ:
+"σημερα" = {ctx['date_str']}
+"αυριο" = {ctx['tomorrow_name']}
+"μεθαυριο" = {ctx['day_after_name']}
+"πρωι" = 10-12, "μεσημερι" = 13-15, "απογευμα" = 16-19, "βραδυ" = 19-21
+
+Αν ο πελατης πει πολλα μαζι ("θελω fade αυριο στις 6"), ΜΗΝ τα ξαναρωτησεις. Ζητα μονο ο,τι λειπει.
+
+ΑΝ ΧΑΣΕΙΣ: "Συγγνωμη, δεν σ' ακουσα καθαρα, μου το λες ξανα;"
+
+ΕΠΙΒΕΒΑΙΩΣΗ:
+"Λοιπον, σε γραφω για [υπηρεσια] [μερα] στις [ωρα], στο ονομα [ονομα]. Σε περιμενουμε!"
+Μετα: "Καλη σου μερα!" και σταμάτα.
+
 ΓΛΩΣΣΑ:
-- Μιλάς ΠΑΝΤΑ ελληνικά
-- Το όνομα του μαγαζιού το λες "Όν Δε Γκράιντ" (στα ελληνικά, με ελληνική προφορά αγγλικών λέξεων)
-- Όχι μεγάλες προτάσεις. Κράτα τις απαντήσεις σύντομες (1-2 προτάσεις max).
- 
-Τηλέφωνο μαγαζιού (αν χρειαστεί): 6 9 3 4 3 5 4 6 5 2."""
- 
-async def _hangup_room(ctx: JobContext):
+- Παντα ελληνικα
+- "Ον Δε Γκραιντ" (ελληνικη προφορα)
+- Συντομες προτασεις (1-2 max)
+- Τηλεφωνο μαγαζιου: 6 9 3 4 3 5 4 6 5 2"""
+
+async def _hangup_room(ctx):
     try:
-        lk = livekit_api.LiveKitAPI(
-            url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET
-        )
+        lk = livekit_api.LiveKitAPI(url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET)
         await lk.room.delete_room(livekit_api.DeleteRoomRequest(room=ctx.room.name))
-        logger.info(f"Room {ctx.room.name} deleted")
+        logger.info(f"Room deleted")
         await lk.aclose()
     except Exception as e:
         logger.error(f"Hangup error: {e}")
- 
-async def entrypoint(ctx: JobContext):
+
+async def entrypoint(ctx):
     logger.info("Job received")
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     
-    caller_phone = None
     if ctx.room.name.startswith("sip-"):
         parts = ctx.room.name.split("_")
         if len(parts) >= 2:
-            caller_phone = parts[1]
-            logger.info(f"Caller: {caller_phone}")
+            logger.info(f"Caller: {parts[1]}")
+    
+    tctx = get_time_context()
+    logger.info(f"Context: {tctx['date_str']} {tctx['time_str']}")
     
     session = voice.AgentSession(
-        vad=silero.VAD.load(
-            min_silence_duration=0.4,
-            activation_threshold=0.5,
-            prefix_padding_duration=0.2,
-        ),
+        vad=silero.VAD.load(min_silence_duration=0.4, activation_threshold=0.5, prefix_padding_duration=0.2),
         stt=deepgram.STT(
             model="nova-2",
             language="el",
-            keywords=[("fade", 1.5), ("κούρεμα", 1.5), ("γένια", 1.5), 
-                      ("ραντεβού", 1.5), ("ψαλίδι", 1.2), ("styling", 1.2),
-                      ("Δευτέρα", 1.0), ("Τρίτη", 1.0), ("Τετάρτη", 1.0),
-                      ("Πέμπτη", 1.0), ("Παρασκευή", 1.0), ("Σάββατο", 1.0),
-                      ("αύριο", 1.0), ("σήμερα", 1.0), ("μεθαύριο", 1.0)],
+            keywords=[("fade", 1.5), ("κουρεμα", 1.5), ("γενια", 1.5), ("ραντεβου", 1.5),
+                      ("Δευτερα", 1.0), ("Τριτη", 1.0), ("Τεταρτη", 1.0), ("Πεμπτη", 1.0),
+                      ("Παρασκευη", 1.0), ("Σαββατο", 1.0), ("αυριο", 1.0), ("σημερα", 1.0)],
         ),
-        llm=anthropic.LLM(
-            model="claude-haiku-4-5",
-            temperature=0.7,
-        ),
-        tts=elevenlabs.TTS(
-            voice_id=ELEVENLABS_VOICE_ID,
-            model="eleven_turbo_v2_5",
-        ),
-        allow_interruptions=True,
-        min_endpointing_delay=0.5,
-        max_endpointing_delay=2.0,
+        llm=anthropic.LLM(model="claude-haiku-4-5", temperature=0.7),
+        tts=cartesia.TTS(voice=CARTESIA_VOICE_ID, language="el", speed=1.0),
     )
     
     agent = voice.Agent(instructions=get_instructions())
     await session.start(agent=agent, room=ctx.room)
     
     logger.info("Saying greeting")
-    await session.say(
-        "Γεια σου! Όν Δε Γκράιντ, πώς μπορώ να βοηθήσω;",
-        allow_interruptions=True,
-    )
+    await session.say("Γεια σου! Ον Δε Γκραιντ, πως μπορω να βοηθησω;")
     
     @session.on("agent_speech_committed")
     def _check_hangup(msg):
         text = msg.content if hasattr(msg, 'content') else str(msg)
-        if "καλή σου μέρα" in text.lower():
-            logger.info("Goodbye detected, hanging up in 2s")
-            asyncio.get_event_loop().call_later(
-                2.0, lambda: asyncio.ensure_future(_hangup_room(ctx))
-            )
- 
+        if "καλη σου μερα" in text.lower() or "καλή σου μέρα" in text.lower():
+            logger.info("Goodbye detected")
+            asyncio.get_event_loop().call_later(2.0, lambda: asyncio.ensure_future(_hangup_room(ctx)))
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
-    Thread(
-        target=lambda: uvicorn.run(app, host="0.0.0.0", port=port),
-        daemon=True
-    ).start()
+    Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=port), daemon=True).start()
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=AGENT_NAME))
- 

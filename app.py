@@ -41,7 +41,6 @@ async def livekit_webhook(request: Request):
             room_name = event.room_started.room.name
             logger.info(f"Room started: {room_name}")
             if room_name.startswith("sip-"):
-                logger.info(f"SIP room detected, dispatching agent to {room_name}")
                 asyncio.create_task(_dispatch_agent(room_name))
     except Exception as e:
         logger.error(f"Webhook error: {e}")
@@ -49,21 +48,14 @@ async def livekit_webhook(request: Request):
 
 async def _dispatch_agent(room_name: str):
     try:
-        lk = livekit_api.LiveKitAPI(
-            url=LIVEKIT_URL,
-            api_key=LIVEKIT_API_KEY,
-            api_secret=LIVEKIT_API_SECRET,
-        )
+        lk = livekit_api.LiveKitAPI(url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET)
         dispatch = await lk.agent_dispatch.create_dispatch(
-            livekit_api.CreateAgentDispatchRequest(
-                agent_name=AGENT_NAME,
-                room=room_name,
-            )
+            livekit_api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=room_name)
         )
-        logger.info(f"Agent dispatched: {dispatch.id} to room {room_name}")
+        logger.info(f"Agent dispatched: {dispatch.id}")
         await lk.aclose()
     except Exception as e:
-        logger.error(f"Failed to dispatch agent: {e}")
+        logger.error(f"Dispatch error: {e}")
 
 DAYS_GR = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"]
 MONTHS_GR = ["", "Ιανουαρίου", "Φεβρουαρίου", "Μαρτίου", "Απριλίου", "Μαΐου", "Ιουνίου",
@@ -76,66 +68,60 @@ def get_instructions():
     is_sunday = now.weekday() == 6
     tomorrow = DAYS_GR[(now.weekday() + 1) % 7]
     
-    sunday_note = ""
+    sunday_context = ""
     if is_sunday:
-        sunday_note = "ΣΗΜΑΝΤΙΚΟ: Σήμερα είναι Κυριακή, είμαστε ΚΛΕΙΣΤΑ. Αν ρωτήσει για σήμερα, πες: 'Σήμερα Κυριακή δεν δουλεύουμε, αλλά μπορώ να σου κλείσω για αύριο Δευτέρα αν θες!'"
+        sunday_context = f"\n\nΠΡΟΣΟΧΗ: Σήμερα Κυριακή και το κομμωτήριο είναι κλειστό. Αν ζητήσει για σήμερα, εξήγησε φιλικά ότι δεν δουλεύουμε σήμερα και πρότεινε αύριο ({tomorrow})."
     
-    return f"""Είσαι η Νίκη, γραμματέας του κομμωτηρίου "On The Grind" στη Θεσσαλονίκη, Αριστοτέλους 31.
+    return f"""Είσαι η Νίκη, η γραμματέας του barbershop "On The Grind" στη Θεσσαλονίκη (Αριστοτέλους 31).
 
-ΣΗΜΕΡΑ: {date_str}
-ΩΡΑΡΙΟ: Δευτέρα-Σάββατο 10:00-21:00, Κυριακή κλειστά
+Σήμερα είναι {date_str}.
+Δουλεύουμε Δευτέρα με Σάββατο, 10 το πρωί μέχρι 9 το βράδυ. Κυριακή κλειστά.{sunday_context}
 
-ΥΠΗΡΕΣΙΕΣ:
-- Fade κούρεμα: 15ε (30 λεπτά)
-- Fade με ψαλίδι: 18ε (35 λεπτά)
-- Fade με γένια: 22ε (40 λεπτά)
-- Μόνο γένια: 10ε (20 λεπτά)
-- Styling: 12ε (25 λεπτά)
-- Παιδικό: 12ε (25 λεπτά)
+ΠΡΟΣΩΠΙΚΟΤΗΤΑ:
+Μιλάς σαν ζεστή, φιλική κοπέλα που δουλεύει στο μαγαζί. Όχι σαν υπάλληλος call center. Όχι αυστηρή, όχι αποτομη. Χρησιμοποιείς φυσικά εκφράσεις: "εντάξει", "ωραία", "μάλιστα", "βεβαίως", "καλώς". Λες "ναι" αντί για "ναι, βεβαίως".
 
-ΠΩΣ ΜΙΛΑΣ:
-- Μιλάς σαν φυσικός άνθρωπος, όχι σαν ρομπότ
-- Σύντομες, ζεστές απαντήσεις
-- ΜΙΑ ερώτηση τη φορά
-- ΜΗΝ επαναλαμβάνεις ερωτήσεις που ήδη απάντησε ο πελάτης
-- Αν ο πελάτης σου πει πολλά μαζί (π.χ. "θέλω fade αύριο στις 6"), μην τα ξαναρωτάς - πήγαινε κατευθείαν σε ό,τι λείπει
+Παράδειγμα ύφους:
+- ΟΧΙ: "Σας ευχαριστώ. Παρακαλώ ενημερώστε με για την επιθυμητή ημερομηνία."
+- ΝΑΙ: "Ωραία! Πότε σε βολεύει να έρθεις;"
 
-ΡΟΗ ΚΡΑΤΗΣΗΣ:
-Χρειάζεσαι 4 πράγματα: υπηρεσία, μέρα, ώρα, όνομα.
-Ρώτα μόνο ό,τι δεν έχει ήδη πει ο πελάτης. Η σειρά δεν είναι αυστηρή - ακολούθησε τη φυσική ροή της συζήτησης.
+Δουλειά σου: κλείνεις ραντεβού. Χρειάζεσαι 4 πράγματα: τι κούρεμα, ποια μέρα, τι ώρα, τι όνομα. Ρώτα ΜΟΝΟ ό,τι λείπει. Αν σου πει στο πρώτο μήνυμα "θέλω fade αύριο στις 6", έχεις 3/4 — ζήτα μόνο όνομα. Μην ξαναρωτάς πράγματα που είπε ήδη.
 
-{sunday_note}
+ΥΠΗΡΕΣΙΕΣ (μόνο αν ρωτήσει):
+- Fade: 15 ευρώ
+- Fade με ψαλίδι: 18 ευρώ
+- Fade με γένια: 22 ευρώ
+- Μόνο γένια: 10 ευρώ
+- Styling: 12 ευρώ
+- Παιδικό: 12 ευρώ
 
-ΚΑΝΟΝΕΣ:
+Αν πει απλά "κούρεμα", υπέθεσε fade. Μπορείς να ρωτήσεις "Fade ή με γένια;" αν θες σιγουριά.
+
+ΣΥΖΗΤΗΣΗ:
+- Μία ερώτηση τη φορά
+- Σύντομα, ζεστά
+- Αν δεν ακούσεις καλά: "Συγγνώμη, δεν σ' άκουσα καθαρά, μπορείς να μου το πεις ξανά;"
 - "αύριο" = {tomorrow}
-- Αν πει "μεσημέρι" ή "απόγευμα" χωρίς ώρα, ρώτα φιλικά: "Τι ώρα περίπου;"
-- ΜΗΝ λες τις υπηρεσίες εκτός αν ρωτήσει "τι έχετε;"
-- Μίλα ΠΑΝΤΑ ελληνικά
-- "On The Grind" προφέρεται αγγλικά
+- Αν δώσει αόριστη ώρα ("πρωί", "απόγευμα"), ρώτα "Τι ώρα σε βολεύει πιο πολύ;"
 
-ΕΠΙΒΕΒΑΙΩΣΗ:
-Όταν έχεις και τα 4, πες κάτι σαν:
-"Ωραία! Σε έχω για [κούρεμα], [μέρα] στις [ώρα], στο όνομα [όνομα]. Σε περιμένουμε!"
-Μετά: "Καλή σου μέρα!" και ΤΕΛΟΣ - μη λες τίποτα άλλο.
-Αν πει "ευχαριστώ" μετά, απάντα μόνο "Γεια!" και τίποτα άλλο.
+ΚΛΕΙΣΙΜΟ:
+Επιβεβαιώνεις φυσικά: "Τέλεια! Σε γράφω για fade την Τετάρτη στις 6 το απόγευμα, στο όνομα Γιάννης. Σε περιμένουμε!"
+Μετά: "Καλή σου μέρα!" και τέλος. Αν πει "ευχαριστώ" ή "γεια", απάντα ένα ζεστό "Γεια!" και τίποτα άλλο.
 
-ΤΗΛΕΦΩΝΟ ΚΑΤΑΣΤΗΜΑΤΟΣ: 6934354652 (αν χρειαστεί)"""
+Το "On The Grind" προφέρεται αγγλικά ("ον δε γκράιντ").
+Μιλάς ΠΑΝΤΑ ελληνικά.
+Τηλέφωνο μαγαζιού: 6934354652."""
 
 async def _hangup_room(ctx: JobContext):
     try:
-        lk = livekit_api.LiveKitAPI(
-            url=LIVEKIT_URL,
-            api_key=LIVEKIT_API_KEY,
-            api_secret=LIVEKIT_API_SECRET,
-        )
+        lk = livekit_api.LiveKitAPI(url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET)
         await lk.room.delete_room(livekit_api.DeleteRoomRequest(room=ctx.room.name))
-        logger.info(f"Room {ctx.room.name} deleted - call ended")
+        logger.info(f"Room {ctx.room.name} deleted")
         await lk.aclose()
     except Exception as e:
         logger.error(f"Hangup error: {e}")
 
 async def entrypoint(ctx: JobContext):
-    logger.info("Job received, connecting to room")
+    logger.info("Job received")
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     
     caller_phone = None
@@ -143,7 +129,7 @@ async def entrypoint(ctx: JobContext):
         parts = ctx.room.name.split("_")
         if len(parts) >= 2:
             caller_phone = parts[1]
-            logger.info(f"Caller phone extracted: {caller_phone}")
+            logger.info(f"Caller: {caller_phone}")
     
     session = voice.AgentSession(
         vad=silero.VAD.load(
@@ -151,36 +137,35 @@ async def entrypoint(ctx: JobContext):
             activation_threshold=0.45,
             prefix_padding_duration=0.15,
         ),
-        stt=deepgram.STT(model="nova-2", language="el"),
+        stt=deepgram.STT(
+            model="nova-2", 
+            language="el",
+            keyterms=["fade", "κούρεμα", "γένια", "ραντεβού", "ξύρισμα", "ψαλίδι", "styling",
+                      "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο",
+                      "αύριο", "μεθαύριο", "σήμερα", "πρωί", "απόγευμα", "βράδυ"],
+        ),
         llm=anthropic.LLM(model="claude-haiku-4-5"),
         tts=cartesia.TTS(
             voice=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
             language="el",
-            speed=1.15,
+            speed=1.0,
         ),
     )
     
     agent = voice.Agent(instructions=get_instructions())
     await session.start(agent=agent, room=ctx.room)
     
-    logger.info("Session started, saying greeting")
-    await session.say("On The Grind, παρακαλώ;")
+    logger.info("Saying greeting")
+    await session.say("Γεια σου! On The Grind, πώς μπορώ να βοηθήσω;")
     
     @session.on("agent_speech_committed")
     def _check_hangup(msg):
         text = msg.content if hasattr(msg, 'content') else str(msg)
         if "καλή σου μέρα" in text.lower():
-            logger.info("Goodbye detected, hanging up in 2s")
+            logger.info("Goodbye detected")
             asyncio.get_event_loop().call_later(2.0, lambda: asyncio.ensure_future(_hangup_room(ctx)))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
-    Thread(
-        target=lambda: uvicorn.run(app, host="0.0.0.0", port=port),
-        daemon=True
-    ).start()
-    
-    cli.run_app(WorkerOptions(
-        entrypoint_fnc=entrypoint,
-        agent_name=AGENT_NAME,
-    ))
+    Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=port), daemon=True).start()
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=AGENT_NAME))

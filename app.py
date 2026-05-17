@@ -149,7 +149,6 @@ async def entrypoint(ctx: JobContext):
             voice=os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"),
             language="el",
             speed=1.0,
-            model="sonic-2",
         ),
         preemptive_generation=True,
     )

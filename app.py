@@ -162,24 +162,17 @@ async def entrypoint(ctx):
     
     session = voice.AgentSession(
         vad=silero.VAD.load(
-            min_silence_duration=0.25,
-            activation_threshold=0.4,
+            min_silence_duration=0.3,
+            activation_threshold=0.45,
             prefix_padding_duration=0.15,
         ),
-        stt=deepgram.STT(
-            model="nova-3",
-            language="multi",
-            keyterms=["fade", "κουρεμα", "γενια", "ραντεβου", "ψαλιδι", "styling",
-                      "Δευτερα", "Τριτη", "Τεταρτη", "Πεμπτη", "Παρασκευη", "Σαββατο",
-                      "αυριο", "σημερα", "μεθαυριο", "Ον Δε Γκραιντ"],
-        ),
+        stt=deepgram.STT(model="nova-2", language="el"),
         llm=anthropic.LLM(model="claude-haiku-4-5", temperature=0.7),
         tts=cartesia.TTS(
             voice=CARTESIA_VOICE_ID,
             language="el",
+            speed=1.0,
         ),
-        min_endpointing_delay=0.5,
-        max_endpointing_delay=3.0,
         allow_interruptions=True,
     )
     

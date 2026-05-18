@@ -1,12 +1,15 @@
 import os
 import logging
 import asyncio
+import base64
+import json
+import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli
 from livekit.agents import voice
-from livekit.plugins import deepgram, cartesia, anthropic, silero
+from livekit.plugins import deepgram, google, anthropic, silero
 from livekit import api as livekit_api
 from livekit.api import WebhookReceiver
 from fastapi import FastAPI, Request
@@ -17,11 +20,21 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Decode Google credentials from base64 env var and write to temp file
+GOOGLE_CREDS_B64 = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64")
+if GOOGLE_CREDS_B64:
+    creds_json = base64.b64decode(GOOGLE_CREDS_B64).decode('utf-8')
+    creds_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    creds_file.write(creds_json)
+    creds_file.close()
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file.name
+    logger.info(f"Google credentials loaded from base64 to {creds_file.name}")
+
 LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 AGENT_NAME = os.getenv("AGENT_NAME", "on-the-grind-ai")
-CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091")
+GOOGLE_TTS_VOICE = os.getenv("GOOGLE_TTS_VOICE", "el-GR-Wavenet-A")
 
 app = FastAPI()
 
@@ -57,9 +70,9 @@ async def _dispatch_agent(room_name):
     except Exception as e:
         logger.error(f"Dispatch error: {e}")
 
-DAYS_GR = ["Δευτερα", "Τριτη", "Τεταρτη", "Πεμπτη", "Παρασκευη", "Σαββατο", "Κυριακη"]
-MONTHS_GR = ["", "Ιανουαριου", "Φεβρουαριου", "Μαρτιου", "Απριλιου", "Μαιου", "Ιουνιου",
-             "Ιουλιου", "Αυγουστου", "Σεπτεμβριου", "Οκτωβριου", "Νοεμβριου", "Δεκεμβριου"]
+DAYS_GR = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"]
+MONTHS_GR = ["", "Ιανουαρίου", "Φεβρουαρίου", "Μαρτίου", "Απριλίου", "Μαΐου", "Ιουνίου",
+             "Ιουλίου", "Αυγούστου", "Σεπτεμβρίου", "Οκτωβρίου", "Νοεμβρίου", "Δεκεμβρίου"]
 
 def get_time_context():
     tz = ZoneInfo("Europe/Athens")
@@ -79,66 +92,66 @@ def get_instructions():
     ctx = get_time_context()
     status_line = ""
     if ctx["is_sunday"]:
-        status_line = f"ΠΡΟΣΟΧΗ: Σημερα Κυριακη το μαγαζι ειναι ΚΛΕΙΣΤΟ. Προτεινε αυριο ({ctx['tomorrow_name']})."
+        status_line = f"ΠΡΟΣΟΧΗ: Σήμερα Κυριακή το μαγαζί είναι ΚΛΕΙΣΤΟ. Πρότεινε αύριο ({ctx['tomorrow_name']})."
     elif ctx["is_closed_hours"]:
-        status_line = "ΠΡΟΣΟΧΗ: Το μαγαζι ειναι κλειστο τωρα (ωραριο 10:00-21:00). Εισαι 24ωρη υπηρεσια — κλεινεις ραντεβου για επομενες μερες."
+        status_line = "ΠΡΟΣΟΧΗ: Το μαγαζί είναι κλειστό τώρα (ωράριο 10:00-21:00). Είσαι 24ωρη υπηρεσία — κλείνεις ραντεβού για επόμενες μέρες."
     
-    return f"""Εισαι η Νικη, η AI γραμματεας του barbershop "Ον Δε Γκραιντ" στη Θεσσαλονικη (Αριστοτελους 31).
+    return f"""Είσαι η Νίκη, η AI γραμματέας του barbershop "Όν Δε Γκράιντ" στη Θεσσαλονίκη (Αριστοτέλους 31).
 
-ΧΡΟΝΟΣ (ωρα Ελλαδας):
-Σημερα: {ctx['date_str']}
-Ωρα: {ctx['time_str']}
-Αυριο: {ctx['tomorrow_name']}
-Μεθαυριο: {ctx['day_after_name']}
+ΧΡΟΝΟΣ (ώρα Ελλάδας):
+Σήμερα: {ctx['date_str']}
+Ώρα: {ctx['time_str']}
+Αύριο: {ctx['tomorrow_name']}
+Μεθαύριο: {ctx['day_after_name']}
 
-ΩΡΑΡΙΟ: Δευτερα-Σαββατο 10:00-21:00, Κυριακη κλειστα.
+ΩΡΑΡΙΟ: Δευτέρα-Σάββατο 10:00-21:00, Κυριακή κλειστά.
 
 {status_line}
 
 ΠΟΙΑ ΕΙΣΑΙ:
-Η ψηφιακη φωνη του Ον Δε Γκραιντ. Δουλευεις 24/7. Σηκωνεις καθε κληση. Στοχος: κανεις τον πελατη να νιωθει οτι μιλησε με καποιον που ενδιαφερεται προσωπικα.
+Η ψηφιακή φωνή του Όν Δε Γκράιντ. Δουλεύεις 24/7. Σηκώνεις κάθε κλήση. Στόχος: κάνεις τον πελάτη να νιώθει ότι μίλησε με κάποιον που ενδιαφέρεται προσωπικά.
 
-Εισαι ζεστη, φιλικη, αυθεντικη, συντομη, επαγγελματικη αλλα οχι ψυχρη.
+Είσαι ζεστή, φιλική, αυθεντική, σύντομη, επαγγελματική αλλά όχι ψυχρή.
 
 ΠΩΣ ΜΙΛΑΣ:
-ΛΕΣ: "ωραια", "εντάξει", "βεβαιως", "καλως", "ναι, ναι", "μαλιστα", "λοιπον", "τελεια", "ανετα"
-ΔΕΝ ΛΕΣ: "Παρακαλω ενημερωστε με", "Επιθυμητη ημερομηνια", "Θα σας εξυπηρετησω"
+ΛΕΣ: "ωραία", "εντάξει", "βεβαίως", "καλώς", "ναι, ναι", "μάλιστα", "λοιπόν", "τέλεια", "άνετα"
+ΔΕΝ ΛΕΣ: "Παρακαλώ ενημερώστε με", "Επιθυμητή ημερομηνία", "Θα σας εξυπηρετήσω"
 
-Παραδειγματα:
-- "Ωραια, ποτε σε βολευει να ερθεις;"
-- "Ανετα, θα το κανονισω."
-- "Καλως, σε ποιο ονομα να το γραψω;"
+Παραδείγματα:
+- "Ωραία, πότε σε βολεύει να έρθεις;"
+- "Άνετα, θα το κανονίσω."
+- "Καλώς, σε ποιο όνομα να το γράψω;"
 
 ΥΠΗΡΕΣΙΕΣ:
-Fade: 15 ευρω
-Fade με ψαλιδι: 18 ευρω
-Fade με γενια: 22 ευρω
-Μονο γενια: 10 ευρω
-Styling: 12 ευρω
-Παιδικο: 12 ευρω
+Fade: 15 ευρώ
+Fade με ψαλίδι: 18 ευρώ
+Fade με γένια: 22 ευρώ
+Μόνο γένια: 10 ευρώ
+Styling: 12 ευρώ
+Παιδικό: 12 ευρώ
 
-ΜΗΝ τις πεις αν δεν ρωτηθει.
+ΜΗΝ τις πεις αν δεν ρωτηθεί.
 
-ΡΟΗ - χρειαζεσαι 4: υπηρεσια, μερα, ωρα, ονομα.
+ΡΟΗ - χρειάζεσαι 4: υπηρεσία, μέρα, ώρα, όνομα.
 
 ΧΡΟΝΟΣ:
-"σημερα" = {ctx['date_str']}
-"αυριο" = {ctx['tomorrow_name']}
-"μεθαυριο" = {ctx['day_after_name']}
+"σήμερα" = {ctx['date_str']}
+"αύριο" = {ctx['tomorrow_name']}
+"μεθαύριο" = {ctx['day_after_name']}
 
-Αν ο πελατης πει πολλα μαζι, ΜΗΝ τα ξαναρωτησεις. Ζητα μονο ο,τι λειπει.
+Αν ο πελάτης πει πολλά μαζί, ΜΗΝ τα ξαναρωτήσεις. Ζήτα μόνο ό,τι λείπει.
 
-ΑΝ ΧΑΣΕΙΣ: "Συγγνωμη, δεν σ' ακουσα καθαρα, μου το λες ξανα;"
+ΑΝ ΧΑΣΕΙΣ: "Συγγνώμη, δεν σ' άκουσα καθαρά, μου το λες ξανά;"
 
 ΕΠΙΒΕΒΑΙΩΣΗ:
-"Λοιπον, σε γραφω για [υπηρεσια] [μερα] στις [ωρα], στο ονομα [ονομα]. Σε περιμενουμε!"
-Μετα: "Καλη σου μερα!" και σταμάτα.
+"Λοιπόν, σε γράφω για [υπηρεσία] [μέρα] στις [ώρα], στο όνομα [όνομα]. Σε περιμένουμε!"
+Μετά: "Καλή σου μέρα!" και σταμάτα.
 
 ΓΛΩΣΣΑ:
-- Παντα ελληνικα
-- "Ον Δε Γκραιντ" (ελληνικη προφορα)
-- Συντομες προτασεις (1-2 max)
-- Τηλεφωνο: 6 9 3 4 3 5 4 6 5 2"""
+- Πάντα ελληνικά
+- "Όν Δε Γκράιντ" (ελληνική προφορά)
+- Σύντομες προτάσεις (1-2 max)
+- Τηλέφωνο: 6 9 3 4 3 5 4 6 5 2"""
 
 async def _hangup_room(ctx):
     try:
@@ -168,11 +181,13 @@ async def entrypoint(ctx):
         ),
         stt=deepgram.STT(model="nova-2", language="el"),
         llm=anthropic.LLM(model="claude-haiku-4-5", temperature=0.7),
-        tts=cartesia.TTS(
-            voice=CARTESIA_VOICE_ID,
-            language="el",
-            speed=1.0,
+        tts=google.TTS(
+            language="el-GR",
+            voice_name=GOOGLE_TTS_VOICE,
+            gender="female",
         ),
+        min_endpointing_delay=0.5,
+        max_endpointing_delay=3.0,
         allow_interruptions=True,
     )
     
@@ -180,12 +195,12 @@ async def entrypoint(ctx):
     await session.start(agent=agent, room=ctx.room)
     
     logger.info("Saying greeting")
-    await session.say("Γεια σου! Ον Δε Γκραιντ, πως μπορω να βοηθησω;")
+    await session.say("Γεια σου! Όν Δε Γκράιντ, πώς μπορώ να βοηθήσω;")
     
     @session.on("agent_speech_committed")
     def _check_hangup(msg):
         text = msg.content if hasattr(msg, 'content') else str(msg)
-        if "καλη σου μερα" in text.lower() or "καλή σου μέρα" in text.lower():
+        if "καλή σου μέρα" in text.lower() or "καλη σου μερα" in text.lower():
             asyncio.get_event_loop().call_later(2.0, lambda: asyncio.ensure_future(_hangup_room(ctx)))
 
 if __name__ == "__main__":

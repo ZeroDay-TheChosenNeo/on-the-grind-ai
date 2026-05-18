@@ -7,3 +7,4 @@ fastapi==0.115.12
 uvicorn[standard]==0.34.2
 python-dotenv==1.1.0
 livekit-plugins-elevenlabs
+livekit-plugins-google

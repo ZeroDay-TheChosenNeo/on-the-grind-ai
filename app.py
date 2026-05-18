@@ -176,6 +176,7 @@ async def entrypoint(ctx):
         llm=anthropic.LLM(model="claude-haiku-4-5", temperature=0.7),
         tts=cartesia.TTS(
             voice=CARTESIA_VOICE_ID,
+            language="el",
         ),
         min_endpointing_delay=0.5,
         max_endpointing_delay=3.0,
